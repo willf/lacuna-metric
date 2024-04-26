@@ -263,7 +263,10 @@ class ABConverter:
         lem = element.find("lem")
         if lem is not None:
             return "".join([self.convert(child) for child in children(lem)])
-        self.error(ValueError("No lem in app element"))
+        rdg = element.find("rdg")
+        if rdg is not None:
+            return "".join([self.convert(child) for child in children(rdg)])
+        self.error(ValueError("No lem or rdg in app element"))
 
     def choice_text(self, element):
         """

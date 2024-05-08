@@ -1,7 +1,16 @@
+import json
 import re
 
 import lxml
 import lxml.etree as ET
+from lxml.etree import QName
+
+
+def tag_localname(element):
+    """
+    Get the localname of an element
+    """
+    return QName(element.tag).localname
 
 
 def generate_test_ab():
@@ -9,7 +18,7 @@ def generate_test_ab():
     Generate a test abstract element
     """
     text = """
-    <ab xml:space="preserve">
+    <ab xmlns="http://www.tei-c.org/ns/1.0" xml:space="preserve">
     <lb n="1"/><gap reason="lost" extent="unknown" unit="line"/>
     <lb n="1"/><gap reason="lost" extent="unknown" unit="character"/><gap reason="illegible" quantity="2" unit="character"/><gap reason="lost" extent="unknown" unit="character"/><gap reason="illegible" quantity="1" unit="character"/><gap reason="lost" extent="unknown" unit="character"/>
     <lb n="2"/><gap reason="illegible" quantity="5" unit="character"/><gap reason="lost" quantity="5" unit="character"/> <app type="alternative"><lem>ὠνουμένη</lem><rdg>ὠνουμένῃ</rdg></app> <app type="alternative"><lem>Ἰ<unclear>σ</unclear>α<supplied reason="lost">ροῦς</supplied></lem><rdg>Ἰ<unclear>σ</unclear>ά<supplied reason="lost">ριον</supplied></rdg></app><gap reason="lost" quantity="1" unit="character"/><gap reason="illegible" quantity="1" unit="character"/><unclear>ν</unclear> <gap reason="lost" quantity="3" unit="character"/>ρχοντ<gap reason="lost" quantity="1" unit="character"/><unclear>ν</unclear><gap reason="lost" extent="unknown" unit="character"/><supplied reason="lost">πηχῶν κατ’</supplied>
@@ -26,6 +35,17 @@ def generate_test_ab():
     """
     ab_element = ET.fromstring(text)
     return ab_element
+
+
+def flatten_list(nested_list):
+    """Flatten a nested list of any depth."""
+    flat_list = []
+    for item in nested_list:
+        if isinstance(item, list):
+            flat_list.extend(flatten_list(item))
+        else:
+            flat_list.append(item)
+    return flat_list
 
 
 def children(element):
@@ -59,7 +79,27 @@ def is_element(thing):
     >>> is_element("test")
     False
     """
-    return isinstance(thing, lxml.etree._Element)
+    return isinstance(thing, ET._Element)
+
+
+def in_supplied_element(element):
+    """
+    Check if an element is inside a supplied element
+    """
+    if element.tag == "supplied":
+        return True
+    if element.getparent() is None:
+        return False
+    return in_supplied_element(element.getparent())
+
+
+def test_context(element):
+    """
+    What is the test context of an element?
+    """
+    if in_supplied_element(element):
+        return "evaluation"
+    return "context"
 
 
 def remove_gaps_from_supplied_text(text):
@@ -88,6 +128,33 @@ def remove_gaps_from_supplied_text(text):
         raise ValueError(f"Nested brackets in {text}")
     # let's place brackets around the non-dot groups
     return re.sub(r"([^.]+)", r"[\1]", text)
+
+
+def add_text_or_elements_to_parent(parent, parts):
+    """
+    Add text or elements to a parent element.
+    """
+    last_element = None
+    if not parts:
+        return
+    parts = flatten_list(parts)  # TBD: Fix this
+    if is_text(parts[0]):
+        parent.text = parts[0]
+        parts = parts[1:]
+    else:
+        parent.append(parts[0])
+        parts = parts[1:]
+        last_element = parent[0]
+    for part in parts:
+        if is_text(part):
+            if last_element is None:
+                parent.text = part
+            else:
+                last_element.tail = part
+        else:
+            parent.append(part)
+            last_element = parent[-1]
+    return parent
 
 
 class ABConverter:
@@ -127,6 +194,8 @@ class ABConverter:
         txt = "\n".join(lines)
         # remove leading and trailing '.' characters
         txt = txt.strip(".")
+        # wrap in a <ab> element
+        txt = f"<ab>{txt}</ab>"
         return txt
 
     def convert(self, element):
@@ -149,7 +218,7 @@ class ABConverter:
                 )
             )
             return ""
-        match element.tag:
+        match tag_localname(element):
             case "ab":
                 return self.default_text(element)
             case "abbr":
@@ -157,27 +226,27 @@ class ABConverter:
             case "add":
                 return self.add_text(element)
             case "del":
-                pass  # ignore
+                return ""
             case "app":
                 return self.app_text(element)
             case "certainty":
-                pass  # ignore
+                return ""
             case "choice":
                 return self.choice_text(element)
             case "del":
                 return self.default_text(element)
             case "expan":
-                pass  # ignore
+                return ""
             case "figure":
-                pass  # ignore
+                return ""
             case "foreign":
                 return self.default_text(element)
             case "g":
-                pass  # ignore
+                return ""
             case "gap":
                 return self.gap_text(element)
             case "handShift":
-                pass  # ignore
+                return ""
             case "hi":
                 return self.default_text(element)
             case "lb":
@@ -185,9 +254,9 @@ class ABConverter:
             case "lem":
                 return self.lem_text(element)
             case "milestone":
-                pass  # ignore
+                return ""
             case "note":
-                pass  # ignore
+                return ""
             case "num":
                 return self.num_text(element)
             case "orig":
@@ -206,14 +275,23 @@ class ABConverter:
                 return self.default_text(element)
             case "unclear":
                 return self.unclear_text(element)
+            case "lem":
+                return self.default_text(element)
+            case "rdg":
+                return self.default_text(element)
+            case "hi":
+                return self.default_text(element)
             case _:
-                raise ValueError(f"No function for tag {element.tag}")
+                return self.default_text(element)
+                # raise ValueError(f"No function for tag {element.tag}")
 
     def default_text(self, element):
         """
         Extract text from an element.
         """
-        return "".join([self._convert(child) for child in children(element)])
+        if element is None:
+            return ""
+        return "".join([str(self._convert(child)) for child in children(element)])
 
     def abbr_text(self, element):
         """
@@ -234,25 +312,43 @@ class ABConverter:
         t = element.get("type", "unknown")
         if t != "alternative":
             return ""
-        lem = element.find("lem")
-        if lem is not None:
-            return "".join([self._convert(child) for child in children(lem)])
-        rdg = element.find("rdg")
-        if rdg is not None:
-            return "".join([self._convert(child) for child in children(rdg)])
-        self.error(ValueError("No lem or rdg in app element"))
-        return ""
+        ok_tags = ["lem", "rdg"]
+        return self.text_from_acceptable_children(element, ok_tags)
 
     def choice_text(self, element):
         """
         Extract text from choice elements. We take the first choice.
         that is an abbr, choice, orig, sic, or unclear element
         """
-        for child in element:
-            if child.tag in ["abbr", "choice", "orig", "sic", "unclear"]:
-                return self._convert(child)
-        self.error(ValueError("No acceptable choice in choice element"))
-        return ""
+        ok_tags = ["abbr", "choice", "orig", "sic", "unclear"]
+        return self.text_from_acceptable_children(element, ok_tags)
+
+    def text_from_acceptable_children(self, element, acceptable_tags):
+        """
+        Extract text from acceptable children of an element.
+        """
+        ok_children = [
+            child for child in element if tag_localname(child) in acceptable_tags
+        ]
+        if test_context(element) == "context":
+            if ok_children:
+                return self._convert(ok_children[0])
+            else:
+                self.error(
+                    ValueError(
+                        f"No acceptable choice; must be one of {', '.join(acceptable_tags)}"
+                    )
+                )
+                return ""
+        elif test_context(element) == "evaluation":
+            converted = [self._convert(child) for child in ok_children]
+            if len(converted) == 1:
+                return converted[0]
+            else:
+                return "<alt>" + "</alt><alt>".join(converted) + "</alt>"
+        else:
+            self.error(ValueError("Unknown context for choice element"))
+            return ""
 
     def gap_text(self, element):
         """
@@ -260,14 +356,15 @@ class ABConverter:
         """
         if element.get("unit") == "line":
             return ("-- " * 10).strip()
-        if element.get("quantity") == "unknown":
-            return "." * 10
-        amt_txt = element.get("quantity") or "10"
+        amt_txt = element.get("quantity", "unknown")
+        if amt_txt == "unknown":
+            return "<gap />"
         amt = 0
         try:
             amt = int(amt_txt)
         except ValueError:
             self.error(ValueError(f"Invalid quantity: {amt_txt}"))
+            return "<gap />"
         return "." * amt
 
     def lb_text(self, element):
@@ -293,9 +390,12 @@ class ABConverter:
         Extract text from supplied elements.
         """
         if element.get("reason") in ["lost", "illegible"]:
-            return remove_gaps_from_supplied_text(
+            repaired = remove_gaps_from_supplied_text(
                 "[" + self.default_text(element) + "]"
             )
+            # replace brackets with supplied tag
+            return re.sub(r"\[([^\[\]]+)\]", r"<supplied>\1</supplied>", repaired)
+
         else:
             return ""  # some other reason, probably 'omitted' or 'undefined'
 
@@ -309,7 +409,115 @@ class ABConverter:
         return self.convert(element)
 
 
+def texts_from_supplied(element):
+    """
+    Assume there is either only text or alts with only text
+    """
+    for child in children(element):
+        if is_text(child):
+            yield child
+        else:
+            yield child.text
+
+
+def mode(ns):
+    """
+    Get the mode of a list of numbers
+    """
+    return max(set(ns), key=ns.count)
+
+
+def mode_length(ns):
+    """
+    Get the mode of the lengths of a list of strings
+    """
+    return mode([len(n) for n in ns])
+
+
+def replace_element(element, new_element):
+    """
+    Replace an element with a new element
+    """
+    parent = element.getparent()
+    index = parent.index(element)
+    parent.remove(element)
+    parent.insert(index, new_element)
+
+
+def replace_element_with_text(element, text):
+    """
+    Replace an element with text
+    """
+    parent = element.getparent()
+    index = parent.index(element)
+    parent.remove(element)
+    parent.insert(index, text)
+
+
+def create_test_cases(ab_element):
+    """
+    Create test cases
+    """
+    elements = element.findall(".//supplied")
+    for base in elements:
+        others = [el for el in elements if el != base]
+        base_supplied_values = list(texts_from_supplied(base))
+        base_mode_length = mode_length(base_supplied_values)
+        new_base = ET.Element("eval")
+        ET.SubElement(new_base, "mask").text = "?" * base_mode_length
+        for supplied_value in base_supplied_values:
+            ET.SubElement(new_base, "alt").text = supplied_value
+        replace_element(base, new_base)
+        for other in others:
+            other_values = list(texts_from_supplied(other))
+            other_mode_length = mode_length(other_values)
+            replace_element_with_text(other, "." * other_mode_length)
+        yield element
+
+
+def convert_to_test_case(original_text, match_object):
+    # copy the original text
+    text = original_text
+    # replace the match with the mask
+    text = (
+        text[: match_object.start()]
+        + "?" * len(match_object.group(1))
+        + text[match_object.end() :]
+    )
+    # create the alternatives
+    alternatives = match_object.group(1).split("|")
+    # replace all the other matches with dots
+    text = re.sub(
+        r"<supplied>([^<]+)</supplied>", lambda m: "." * len(m.group(1)), text
+    )
+    # remove any newlines
+    text = text.strip("\n")
+    # remove the <ab> tags
+    if text.startswith("<ab>"):
+        text = text[4:]
+    if text.endswith("</ab>"):
+        text = text[:-5]
+    # remove any  newlines
+    text = text.strip("\n")
+    return {"test_case": text, "alternatives": alternatives}
+
+
+def convert_to_test_cases(original_text):
+    """
+    Convert an original text to test cases
+    """
+    return [
+        convert_to_test_case(original_text, m)
+        for m in re.finditer(r"<supplied>([^<]+)</supplied>", original_text)
+    ]
+
+
 if __name__ == "__main__":
     ab_element = generate_test_ab()
     converter = ABConverter()
-    print(converter(ab_element))
+    txt = converter.convert(ab_element)
+    el = ET.fromstring(txt)
+    txt2 = ET.tostring(el, pretty_print=True, encoding="utf-8").decode("utf-8")
+    cases = convert_to_test_cases(txt2)
+    # display the test cases as JSON with pretty-printing and utf-8 encoding
+    print(json.dumps(cases, indent=2, ensure_ascii=False))

@@ -1,0 +1,38 @@
+You are a Greek papyrologist taking an exam on Ancient Greek reconstruction. You will be given a text.
+
+The text will have one of four types of things:
+1. Greek text. For example, ὁἱ λοιποὶ τόποι'
+2. `<gap />` indicating a gap of unknown extent.
+3. One or more periods or full stops. For example, `.` or `....` These indicate lacunae that we are not trying to recover in this task, but that show gaps of known extent.
+4. One or more question marks. For example, `?` or `???`. This indicates 'the mask'. Your job is to reconstruct/fill in the text hidden by the mask
+
+You should remember that the original texts typically do not have spaces between words, do not use accents, and do use iota adscript, so the number of letters you fill in could be greater or fewer. But it won't be a lot longer or shorter! The mask is only represented by question marks.
+
+Please give up to five possible reconstructions of the mask. DO NOT, I REPEAT, DO NOT TRY TO RECONSTRUCT GAPS INDICATED BY PERIODS OR <gap /> MAKERS. For each reconstruction, give the specific text of the reconstruction, the reconstruction in its immediate context, and a rationale.
+
+Return your results in the following YAML format if you were doing an English example, from "My mother taught me the song that started Now I know my ???s"
+
+```
+- reconstruction: abc
+  in_context: I know my abcs
+  rationale: It's in a famous song
+- reconstruction: ABC
+  in_context: I know my ABCs
+  rationale: I like capital letters
+```
+
+Review the instructions.
+
+Here is the text:
+
+<gap/>..<gap/>.<gap/>
+.......... ὠνουμένη Ἰσα......ν ...ρχοντ.ν<gap/>..........
+ἐμβαδ.ν ἑβδομήκοντα ...σων ἐὰν ὦσι .<gap/> ..................
+ἀνηκόντων πάντων καὶ ε.σόδου καί ἐξόδου ὧν ............................
+θώτου, λιβὸς δημοσία ῥύμη ἐν ᾗ εἴσοδος καὶ ἔξ......................
+Παήσιος βορρᾶ οἱ λοιποὶ τόποι τῆς ὠνουμένης Ἰσαρ...........<gap/>
+των ὄντων ἐν τοῖς ἀπὸ βορρᾶ πρὸς λίβα μέρ...  τῆς .ώμη. <gap/>
+Πατρὴ κάτωι, τ.. δὲ συνπεφων..ένην τιμὴν ἀργ......................
+τος δραχμὰς τρ..κοσίας ἀπεσχηκ.ναι τὸν πωλοῦντ. <gap/> .............
+μένης διὰ χειρὰς καὶ εἶναι τὴν τοῦ πεπραμένου ψιλοῦ τόπ..................
+....ν περὶ τ.. ὠ...μένην .αὶ τοὺ....ρʼ αὐτῆς χρ??????? <gap/>

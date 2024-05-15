@@ -7,7 +7,12 @@ import lxml.etree as ET
 from lingua_py import Language, LanguageDetectorBuilder
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from lacuna_metric.converter import ABConverter, convert_to_test_cases
+from lacuna_metric.converter import (
+    ABConverter,
+    convert_to_test_cases,
+    create_training_text,
+)
+from lacuna_metric.utils import to_string
 
 ld = LanguageDetectorBuilder.from_all_languages().build()
 
@@ -54,8 +59,11 @@ def idno(doc):
     """
     extract the idno from the teiHeader/fileDesc/publicationStmt/idno[@type='filename']
     with the type 'filename'
+    otherwise, the first one found
     """
     idno = doc.find(".//tei:idno[@type='filename']", namespaces=our_namespaces)
+    if idno is None:
+        idno = doc.find(".//tei:idno", namespaces=our_namespaces)
     if idno is None:
         return "unknown"
     return idno.text
@@ -266,33 +274,55 @@ def process(file_path):
     _file_id = idno(doc)
     _title = title(doc)
     # print("Processing", _file_id, _title, _material)
-    for ab in filtered_abs(doc):
+    for ab_index, ab in enumerate(filtered_abs(doc)):
         _lang = language(ab)
         # print(f"Original was {ET.tostring(ab, encoding='unicode', pretty_print=True)}")
         converter = ABConverter()
-        conversion = converter.convert(ab)
+        try:
+            conversion = converter.convert(ab)
+        except Exception as e:
+            sys.stderr.write(f"Error converting {file_path} {ab_index} {e}\n")
+            continue
         # print(f"Converting ab element to test cases: {conversion}")
+        d = {}
+        d["corpus_id"] = _corpus_id
+        d["file_id"] = _file_id
+        d["block_index"] = ab_index + 1
+        id = f"{_corpus_id}/{_file_id}/{ab_index + 1}"
+        d["id"] = id
+        d["title"] = _title
+        d["material"] = _material
+        d["language"] = _lang
+        training_text = ""
+        try:
+            training_text = to_string(create_training_text(conversion))
+        except Exception as e:
+            sys.stderr.write(
+                f"Error creating training text {file_path} {ab_index} {e}\n"
+            )
+            continue
+        # remove ab tags from training text
+        training_text = re.sub(r"</?ab[^>]*>", "", training_text)
+        d["training_text"] = training_text
+        d["test_cases"] = []
         cases = convert_to_test_cases(conversion)
         # print(f"Found {len(cases)} test cases")
-        for c in cases:
-            d = {}
-            d["corpus_id"] = _corpus_id
-            d["file_id"] = _file_id
-            d["file_path"] = file_path
-            d["title"] = _title
-            d["material"] = _material
-            d["language"] = _lang
+        for c_index, c in enumerate(cases):
+            cd = {}
+            cd["case_index"] = c_index + 1
+            cd["id"] = f"{_corpus_id}/{_file_id}/{ab_index + 1}/{c_index + 1}"
             alts = [a for a in c["alternatives"] if a is not None]
             lengths = [len(a) for a in alts]
             some_none_alt = any(["None" in a for a in c["alternatives"]])
             if "None" not in c["test_case"] and not some_none_alt:
-                d["number_alternatives"] = len(alts)
-                d["max_length"] = max(lengths)
-                d["min_length"] = min(lengths)
-                d["mode_length"] = mode(lengths)
-                d["test_case"] = c["test_case"]
-                d["alternatives"] = alts
-                print(json.dumps(d, ensure_ascii=False))
+                cd["number_alternatives"] = len(alts)
+                cd["max_length"] = max(lengths)
+                cd["min_length"] = min(lengths)
+                cd["mode_length"] = mode(lengths)
+                cd["test_case"] = c["test_case"]
+                cd["alternatives"] = alts
+                d["test_cases"].append(cd)
+        print(json.dumps(d, ensure_ascii=False))
         # print(f"{_corpus_id}\t{_file_id}\t{_title}\t{_material}\t{_lang}")
 
 

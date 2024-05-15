@@ -5,12 +5,16 @@ import lxml
 import lxml.etree as ET
 from lxml.etree import QName
 
-
-def tag_localname(element):
-    """
-    Get the localname of an element
-    """
-    return QName(element.tag).localname
+from lacuna_metric.utils import (
+    children,
+    is_element,
+    is_text,
+    mode_length,
+    replace_element,
+    replace_element_with_text,
+    tag_localname,
+    to_string,
+)
 
 
 def generate_test_ab():
@@ -35,51 +39,6 @@ def generate_test_ab():
     """
     ab_element = ET.fromstring(text)
     return ab_element
-
-
-def flatten_list(nested_list):
-    """Flatten a nested list of any depth."""
-    flat_list = []
-    for item in nested_list:
-        if isinstance(item, list):
-            flat_list.extend(flatten_list(item))
-        else:
-            flat_list.append(item)
-    return flat_list
-
-
-def children(element):
-    """
-    Get the children of an element, including text items
-    """
-    if element.text:
-        yield element.text
-    for child in element:
-        yield child
-        if child.tail:
-            yield child.tail
-
-
-def is_text(thing):
-    """
-    Check if an thing is text
-    >>> is_text("test")
-    True
-    >>> is_text(ET.Element("test"))
-    False
-    """
-    return isinstance(thing, str)
-
-
-def is_element(thing):
-    """
-    Check if an thing is an element
-    >>> is_element(ET.Element("test"))
-    True
-    >>> is_element("test")
-    False
-    """
-    return isinstance(thing, ET._Element)
 
 
 def in_supplied_element(element):
@@ -128,33 +87,6 @@ def remove_gaps_from_supplied_text(text):
         raise ValueError(f"Nested brackets in {text}")
     # let's place brackets around the non-dot groups
     return re.sub(r"([^.]+)", r"[\1]", text)
-
-
-def add_text_or_elements_to_parent(parent, parts):
-    """
-    Add text or elements to a parent element.
-    """
-    last_element = None
-    if not parts:
-        return
-    parts = flatten_list(parts)  # TBD: Fix this
-    if is_text(parts[0]):
-        parent.text = parts[0]
-        parts = parts[1:]
-    else:
-        parent.append(parts[0])
-        parts = parts[1:]
-        last_element = parent[0]
-    for part in parts:
-        if is_text(part):
-            if last_element is None:
-                parent.text = part
-            else:
-                last_element.tail = part
-        else:
-            parent.append(part)
-            last_element = parent[-1]
-    return parent
 
 
 class ABConverter:
@@ -355,7 +287,7 @@ class ABConverter:
         Extract text from gap elements.
         """
         if element.get("unit") == "line":
-            return ("-- " * 10).strip()
+            return "<gap />"
         amt_txt = element.get("quantity", "unknown")
         if amt_txt == "unknown":
             return "<gap />"
@@ -420,51 +352,35 @@ def texts_from_supplied(element):
             yield child.text
 
 
-def mode(ns):
+def create_training_text(ab_element):
     """
-    Get the mode of a list of numbers
+    Create a training case
+     1. find all the supplied elements
+     2. for each of these:
+        a. find the text of the first alt of the supplied element
+        b. replace the supplied element with the text of the first alt
     """
-    return max(set(ns), key=ns.count)
-
-
-def mode_length(ns):
-    """
-    Get the mode of the lengths of a list of strings
-    """
-    return mode([len(n) for n in ns])
-
-
-def replace_element(element, new_element):
-    """
-    Replace an element with a new element
-    """
-    parent = element.getparent()
-    index = parent.index(element)
-    parent.remove(element)
-    parent.insert(index, new_element)
-
-
-def replace_element_with_text(element, text):
-    """
-    Replace an element with text
-    """
-    parent = element.getparent()
-    index = parent.index(element)
-    parent.remove(element)
-    parent.insert(index, text)
+    element = ET.fromstring(ab_element)
+    elements = element.findall(".//supplied")
+    for supplied in elements:
+        base_supplied_values = list(texts_from_supplied(supplied))
+        first_alt_text = base_supplied_values[0]
+        replace_element_with_text(supplied, f"[{first_alt_text}]")
+    return element
 
 
 def create_test_cases(ab_element):
     """
     Create test cases
     """
+    element = ET.fromstring(ab_element)
     elements = element.findall(".//supplied")
     for base in elements:
         others = [el for el in elements if el != base]
         base_supplied_values = list(texts_from_supplied(base))
         base_mode_length = mode_length(base_supplied_values)
         new_base = ET.Element("eval")
-        ET.SubElement(new_base, "mask").text = "?" * base_mode_length
+        ET.SubElement(new_base, "mask").text = f"[{'.' * base_mode_length}]"
         for supplied_value in base_supplied_values:
             ET.SubElement(new_base, "alt").text = supplied_value
         replace_element(base, new_base)
@@ -481,7 +397,9 @@ def convert_to_test_case(original_text, match_object):
     # replace the match with the mask
     text = (
         text[: match_object.start()]
-        + "?" * len(match_object.group(1))
+        + "["
+        + "." * len(match_object.group(1))
+        + "]"
         + text[match_object.end() :]
     )
     # create the alternatives

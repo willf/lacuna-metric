@@ -15,19 +15,6 @@ def converter():
     return ABConverter()
 
 
-def test_is_text():
-    assert is_text("Test")
-    assert not is_text(ET.Element("test"))
-    assert not is_text(ET.Element("test", text="Test"))
-
-
-def test_is_element():
-    assert is_element(ET.Element("test"))
-    assert not is_element("Test")
-    assert is_element(ET.Element("test", text="Test"))
-    assert not is_element(23)
-
-
 def test_remove_gaps_from_supplied_text():
     assert remove_gaps_from_supplied_text("[abd.efg]") == "[abd].[efg]"
     assert remove_gaps_from_supplied_text("[...]") == "..."
